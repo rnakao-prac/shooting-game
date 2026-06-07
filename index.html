@@ -18,7 +18,7 @@
     }
     h1 { margin-bottom: 6px; font-size: 24px; color: #00ffff; text-shadow: 0 0 10px #00ffff; }
 
-    /* ===== 操作説明バー ===== */
+    /* 操作説明バー */
     #instructions {
       display: flex;
       gap: 18px;
@@ -56,6 +56,41 @@
     }
     #score-board span { color: #00ffff; font-weight: bold; }
 
+    /* パワーアップ表示 */
+    #powerup-status {
+      display: flex;
+      gap: 10px;
+      margin-top: 6px;
+      font-size: 13px;
+      min-height: 26px;
+      align-items: center;
+    }
+    .powerup-badge {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      background: #ffffff15;
+      border-radius: 20px;
+      padding: 2px 10px;
+      animation: badgePop 0.3s ease;
+    }
+    .powerup-badge .timer-bar {
+      width: 40px;
+      height: 4px;
+      background: #ffffff33;
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .powerup-badge .timer-fill {
+      height: 100%;
+      border-radius: 2px;
+      transition: width 0.1s linear;
+    }
+    @keyframes badgePop {
+      from { transform: scale(0.7); opacity: 0; }
+      to   { transform: scale(1);   opacity: 1; }
+    }
+
     /* BGMボタン */
     #bgm-btn {
       background: #ffffff15;
@@ -69,7 +104,7 @@
     }
     #bgm-btn:hover { background: #00ffff22; }
 
-    /* ===== モーダル共通 ===== */
+    /* モーダル共通 */
     .modal-overlay {
       display: none;
       position: fixed;
@@ -112,7 +147,7 @@
     }
     .btn-outline:hover { background: #00ffff22; }
 
-    /* ===== ランキング ===== */
+    /* ランキング */
     #ranking-table {
       width: 100%;
       border-collapse: collapse;
@@ -126,20 +161,38 @@
       text-align: left;
     }
     #ranking-table td { padding: 7px 10px; color: #ddd; }
-    #ranking-table tr:nth-child(odd) td  { background: #ffffff08; }
+    #ranking-table tr:nth-child(odd) td { background: #ffffff08; }
     .rank-1 td { color: #ffd700 !important; font-weight: bold; }
     .rank-2 td { color: #c0c0c0 !important; }
     .rank-3 td { color: #cd7f32 !important; }
 
-    /* ゲームオーバー */
     #gameover-modal h2 { color: #ff4444; text-shadow: 0 0 20px #ff4444; }
     #new-record { color: #ffd700; font-size: 18px; font-weight: bold; margin: 8px 0; display: none; }
+
+    /* 取得通知トースト */
+    #toast {
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #1a1a3a;
+      border: 2px solid #ffd700;
+      border-radius: 12px;
+      padding: 10px 24px;
+      font-size: 16px;
+      font-weight: bold;
+      color: #ffd700;
+      z-index: 20;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+    #toast.show { opacity: 1; }
   </style>
 </head>
 <body>
   <h1>🚀 スペースシューター</h1>
 
-  <!-- ★ 操作説明バー -->
   <div id="instructions">
     <span><span class="key">← →</span> 左右移動</span>
     <span><span class="key">↑ ↓</span> 上下移動</span>
@@ -157,7 +210,15 @@
     <button class="btn btn-outline" style="padding:3px 12px;font-size:14px;margin-top:0" onclick="showRanking()">🏆 ランキング</button>
   </div>
 
-  <!-- ★ ゲームオーバーモーダル -->
+  <!-- パワーアップ状態表示 -->
+  <div id="powerup-status"></div>
+
+  <!-- パワーアップ説明 -->
+  <div style="font-size:12px;color:#555;margin-top:4px">
+    🔴 拡散弾 &nbsp; 🔵 速射 &nbsp; 🟡 シールド &nbsp; 🟢 ライフ回復
+  </div>
+
+  <!-- ゲームオーバーモーダル -->
   <div id="gameover-modal" class="modal-overlay">
     <div class="modal">
       <h2>GAME OVER</h2>
@@ -169,14 +230,12 @@
     </div>
   </div>
 
-  <!-- ★ ランキングモーダル -->
+  <!-- ランキングモーダル -->
   <div id="ranking-modal" class="modal-overlay">
     <div class="modal" style="min-width:380px">
       <h2 style="color:#ffd700">🏆 スコアランキング</h2>
       <table id="ranking-table">
-        <thead>
-          <tr><th>#</th><th>スコア</th><th>レベル</th><th>日時</th></tr>
-        </thead>
+        <thead><tr><th>#</th><th>スコア</th><th>レベル</th><th>日時</th></tr></thead>
         <tbody id="ranking-body"></tbody>
       </table>
       <p id="no-record" style="margin-top:16px;display:none">まだ記録がありません。プレイしてみよう！</p>
@@ -187,81 +246,46 @@
     </div>
   </div>
 
+  <!-- 取得通知トースト -->
+  <div id="toast"></div>
+
   <script>
     // =====================
-    //  ★ BGM（Web Audio API）
+    //  BGM（Web Audio API）
     // =====================
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
-    let audioCtx = null;
-    let bgmPlaying = false;
-    let bgmNodes = [];
+    let audioCtx = null, bgmPlaying = false, bgmNodes = [];
 
-    function initAudio() {
-      if (!audioCtx) audioCtx = new AudioCtx();
-    }
+    function initAudio() { if (!audioCtx) audioCtx = new AudioCtx(); }
 
-    // 矩形波シンセで8bitっぽいBGMを生成
     function startBGM() {
-      initAudio();
-      stopBGM();
-      bgmPlaying = true;
+      initAudio(); stopBGM(); bgmPlaying = true;
       document.getElementById('bgm-btn').textContent = '🔊 BGM';
-
-      const BPM = 140;
-      const beat = 60 / BPM;
-
-      // メロディ音列（音名→周波数）
-      const notes = {
-        C4:261.63, D4:293.66, E4:329.63, F4:349.23,
-        G4:392.00, A4:440.00, B4:493.88,
-        C5:523.25, D5:587.33, E5:659.25, G5:783.99,
-        _:0
-      };
-      const melody = [
-        'C5','E5','G5','E5','C5','G4','A4','B4',
-        'C5','E5','G5','E5','D5','_','D5','E5',
-        'C5','E5','G5','E5','C5','G4','A4','B4',
-        'G5','_','G5','E5','C5','_','_','_'
-      ];
-
+      const BPM = 140, beat = 60 / BPM;
+      const notes = { C4:261.63,D4:293.66,E4:329.63,F4:349.23,G4:392,A4:440,B4:493.88,C5:523.25,D5:587.33,E5:659.25,G5:783.99,_:0 };
+      const melody = ['C5','E5','G5','E5','C5','G4','A4','B4','C5','E5','G5','E5','D5','_','D5','E5','C5','E5','G5','E5','C5','G4','A4','B4','G5','_','G5','E5','C5','_','_','_'];
       let step = 0;
       function scheduleNote() {
         if (!bgmPlaying) return;
-        const noteName = melody[step % melody.length];
-        step++;
-        const freq = notes[noteName];
+        const freq = notes[melody[step++ % melody.length]];
         const now = audioCtx.currentTime;
-
         if (freq > 0) {
-          // メロディ
-          const osc = audioCtx.createOscillator();
-          const gain = audioCtx.createGain();
-          osc.type = 'square';
-          osc.frequency.value = freq;
+          const osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
+          osc.type = 'square'; osc.frequency.value = freq;
           gain.gain.setValueAtTime(0.08, now);
           gain.gain.linearRampToValueAtTime(0, now + beat * 0.8);
-          osc.connect(gain);
-          gain.connect(audioCtx.destination);
-          osc.start(now);
-          osc.stop(now + beat);
+          osc.connect(gain); gain.connect(audioCtx.destination);
+          osc.start(now); osc.stop(now + beat);
           bgmNodes.push(osc, gain);
         }
-
-        // ベース（1拍ごと）
         if (step % 2 === 0) {
-          const bass = audioCtx.createOscillator();
-          const bg = audioCtx.createGain();
-          bass.type = 'sawtooth';
-          bass.frequency.value = 65.41; // C2
-          bg.gain.setValueAtTime(0.06, now);
-          bg.gain.linearRampToValueAtTime(0, now + beat * 0.5);
-          bass.connect(bg);
-          bg.connect(audioCtx.destination);
-          bass.start(now);
-          bass.stop(now + beat * 0.5);
+          const bass = audioCtx.createOscillator(), bg = audioCtx.createGain();
+          bass.type = 'sawtooth'; bass.frequency.value = 65.41;
+          bg.gain.setValueAtTime(0.06, now); bg.gain.linearRampToValueAtTime(0, now + beat * 0.5);
+          bass.connect(bg); bg.connect(audioCtx.destination);
+          bass.start(now); bass.stop(now + beat * 0.5);
           bgmNodes.push(bass, bg);
         }
-
         setTimeout(scheduleNote, beat * 1000);
       }
       scheduleNote();
@@ -274,22 +298,13 @@
       document.getElementById('bgm-btn').textContent = '🔇 BGM';
     }
 
-    function toggleBGM() {
-      if (bgmPlaying) stopBGM();
-      else startBGM();
-    }
+    function toggleBGM() { bgmPlaying ? stopBGM() : startBGM(); }
+    document.addEventListener('keydown', e => { if (e.code === 'KeyM') toggleBGM(); });
 
-    // Mキーでもトグル
-    document.addEventListener('keydown', e => {
-      if (e.code === 'KeyM') toggleBGM();
-    });
-
-    // 効果音
     function playSE(type) {
       initAudio();
       const now = audioCtx.currentTime;
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
+      const osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
       if (type === 'shoot') {
         osc.type = 'square';
         osc.frequency.setValueAtTime(880, now);
@@ -303,78 +318,136 @@
         gain.gain.setValueAtTime(0.12, now);
         gain.gain.linearRampToValueAtTime(0, now + 0.2);
       } else if (type === 'hit') {
-        osc.type = 'square';
-        osc.frequency.setValueAtTime(150, now);
+        osc.type = 'square'; osc.frequency.value = 150;
         gain.gain.setValueAtTime(0.1, now);
         gain.gain.linearRampToValueAtTime(0, now + 0.15);
+      } else if (type === 'powerup') {
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(440, now);
+        osc.frequency.linearRampToValueAtTime(880, now + 0.15);
+        gain.gain.setValueAtTime(0.15, now);
+        gain.gain.linearRampToValueAtTime(0, now + 0.2);
       }
-      osc.connect(gain);
-      gain.connect(audioCtx.destination);
-      osc.start(now);
-      osc.stop(now + 0.3);
+      osc.connect(gain); gain.connect(audioCtx.destination);
+      osc.start(now); osc.stop(now + 0.3);
     }
 
     // =====================
-    //  ★ スコアランキング
+    //  スコアランキング
     // =====================
     const RANKING_KEY = 'shooting_game_ranking';
-    const MAX_RANK = 10;
-
-    function loadRanking() {
-      try { return JSON.parse(localStorage.getItem(RANKING_KEY)) || []; }
-      catch(e) { return []; }
-    }
-
-    function saveRanking(list) {
-      localStorage.setItem(RANKING_KEY, JSON.stringify(list));
-    }
-
+    function loadRanking() { try { return JSON.parse(localStorage.getItem(RANKING_KEY)) || []; } catch(e) { return []; } }
+    function saveRanking(list) { localStorage.setItem(RANKING_KEY, JSON.stringify(list)); }
     function addRecord(score, level) {
       const list = loadRanking();
       const now = new Date();
       const dateStr = `${now.getMonth()+1}/${now.getDate()} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
       list.push({ score, level, date: dateStr });
-      list.sort((a, b) => b.score - a.score);
-      const trimmed = list.slice(0, MAX_RANK);
+      list.sort((a,b) => b.score - a.score);
+      const trimmed = list.slice(0, 10);
       saveRanking(trimmed);
-      // 自己ベスト更新チェック
       return trimmed[0].score === score && trimmed.filter(r => r.score === score).length === 1;
     }
-
     function showRanking() {
       const list = loadRanking();
       const tbody = document.getElementById('ranking-body');
-      const noRec = document.getElementById('no-record');
       tbody.innerHTML = '';
-      if (list.length === 0) {
-        noRec.style.display = 'block';
-      } else {
-        noRec.style.display = 'none';
-        list.forEach((r, i) => {
-          const tr = document.createElement('tr');
-          if (i === 0) tr.className = 'rank-1';
-          else if (i === 1) tr.className = 'rank-2';
-          else if (i === 2) tr.className = 'rank-3';
-          const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i+1}`;
-          tr.innerHTML = `<td>${medal}</td><td>${r.score.toLocaleString()}</td><td>${r.level}</td><td>${r.date}</td>`;
-          tbody.appendChild(tr);
-        });
-      }
+      document.getElementById('no-record').style.display = list.length === 0 ? 'block' : 'none';
+      list.forEach((r, i) => {
+        const tr = document.createElement('tr');
+        tr.className = ['rank-1','rank-2','rank-3'][i] || '';
+        const medal = ['🥇','🥈','🥉'][i] || `${i+1}`;
+        tr.innerHTML = `<td>${medal}</td><td>${r.score.toLocaleString()}</td><td>${r.level}</td><td>${r.date}</td>`;
+        tbody.appendChild(tr);
+      });
       document.getElementById('ranking-modal').classList.add('show');
-      // ゲーム中なら一時停止
       if (gameRunning) { gameRunning = false; pausedForRanking = true; }
     }
-
     function closeRanking() {
       document.getElementById('ranking-modal').classList.remove('show');
       if (pausedForRanking) { pausedForRanking = false; gameRunning = true; gameLoop(); }
     }
-
     function clearRanking() {
-      if (confirm('ランキングをすべて消去しますか？')) {
-        saveRanking([]);
-        showRanking();
+      if (confirm('ランキングをすべて消去しますか？')) { saveRanking([]); showRanking(); }
+    }
+
+    // =====================
+    //  ★ パワーアップ管理
+    // =====================
+    const POWERUP_DURATION = 300; // フレーム数（約5秒）
+
+    // アクティブ中のパワーアップ { type, remaining }
+    const activePowerups = {};
+
+    // パワーアップ定義
+    const POWERUP_DEFS = {
+      spread: { emoji: '🔴', label: '拡散弾', color: '#ff4444', timerColor: '#ff6666' },
+      rapid:  { emoji: '🔵', label: '速射',   color: '#4488ff', timerColor: '#66aaff' },
+      shield: { emoji: '🟡', label: 'シールド', color: '#ffd700', timerColor: '#ffe44d' },
+      life:   { emoji: '🟢', label: 'ライフ+1', color: '#44ff88', timerColor: '#66ffaa' }
+    };
+
+    function activatePowerup(type) {
+      if (type === 'life') {
+        lives = Math.min(5, lives + 1);
+        updateScoreBoard();
+        showToast('🟢 ライフ回復！');
+        playSE('powerup');
+        return;
       }
+      activePowerups[type] = POWERUP_DURATION;
+      showToast(`${POWERUP_DEFS[type].emoji} ${POWERUP_DEFS[type].label} 獲得！`);
+      playSE('powerup');
+      renderPowerupStatus();
+    }
+
+    function tickPowerups() {
+      for (const type in activePowerups) {
+        activePowerups[type]--;
+        if (activePowerups[type] <= 0) delete activePowerups[type];
+      }
+      renderPowerupStatus();
+    }
+
+    function renderPowerupStatus() {
+      const el = document.getElementById('powerup-status');
+      el.innerHTML = '';
+      for (const type in activePowerups) {
+        const def = POWERUP_DEFS[type];
+        const pct = (activePowerups[type] / POWERUP_DURATION * 100).toFixed(1);
+        const badge = document.createElement('div');
+        badge.className = 'powerup-badge';
+        badge.style.border = `1px solid ${def.color}55`;
+        badge.innerHTML = `
+          <span>${def.emoji}</span>
+          <span style="color:${def.color};font-size:12px">${def.label}</span>
+          <div class="timer-bar">
+            <div class="timer-fill" style="width:${pct}%;background:${def.timerColor}"></div>
+          </div>`;
+        el.appendChild(badge);
+      }
+    }
+
+    function showToast(msg) {
+      const el = document.getElementById('toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      setTimeout(() => el.classList.remove('show'), 1800);
+    }
+
+    function spawnPowerupItem(x, y) {
+      const types = ['spread','rapid','shield','life'];
+      // ライフ回復は低確率
+      const weights = [30, 30, 25, 15];
+      const total = weights.reduce((a,b) => a+b, 0);
+      let rand = Math.random() * total;
+      let type = types[0];
+      for (let i = 0; i < types.length; i++) {
+        rand -= weights[i];
+        if (rand <= 0) { type = types[i]; break; }
+      }
+      const def = POWERUP_DEFS[type];
+      powerupItems.push({ x, y, type, r: 14, speed: 1.5, angle: 0, color: def.color, emoji: def.emoji });
     }
 
     // =====================
@@ -385,16 +458,14 @@
 
     let score = 0, lives = 3, level = 1, gameRunning = true, frame = 0;
     let pausedForRanking = false;
+    let shieldActive = false;
 
     const player = { x: canvas.width/2, y: canvas.height-60, w:40, h:40, speed:5 };
-    let bullets=[], enemies=[], particles=[], stars=[];
+    let bullets = [], enemies = [], particles = [], stars = [], powerupItems = [];
     const keys = {};
 
-    document.addEventListener('keydown', e => {
-      keys[e.code] = true;
-      if (e.code === 'Space') e.preventDefault();
-    });
-    document.addEventListener('keyup', e => keys[e.code] = false);
+    document.addEventListener('keydown', e => { keys[e.code] = true; if (e.code==='Space') e.preventDefault(); });
+    document.addEventListener('keyup',   e => keys[e.code] = false);
 
     for (let i=0; i<80; i++) {
       stars.push({ x:Math.random()*canvas.width, y:Math.random()*canvas.height,
@@ -419,21 +490,52 @@
       for (let i=0;i<count;i++) {
         const angle=(Math.PI*2/count)*i+Math.random()*0.5;
         const spd=Math.random()*3+1;
-        particles.push({ x,y, vx:Math.cos(angle)*spd, vy:Math.sin(angle)*spd,
-          life:1, color, r:Math.random()*3+1 });
+        particles.push({ x,y,vx:Math.cos(angle)*spd,vy:Math.sin(angle)*spd,life:1,color,r:Math.random()*3+1 });
+      }
+    }
+
+    function fireBullets() {
+      const isRapid  = !!activePowerups['rapid'];
+      const isSpread = !!activePowerups['spread'];
+      const cooldownVal = isRapid ? 6 : 12;
+
+      if (keys['Space'] && shootCooldown <= 0) {
+        const bx = player.x, by = player.y - player.h / 2;
+        if (isSpread) {
+          // 3方向
+          [[-0.25, -1], [0, -1], [0.25, -1]].forEach(([vx, vy]) => {
+            const mag = Math.sqrt(vx*vx+vy*vy);
+            bullets.push({ x:bx, y:by, vx:vx/mag*10, vy:vy/mag*10, w:4, h:14, color:'#ff8888' });
+          });
+        } else {
+          bullets.push({ x:bx, y:by, vx:0, vy:-10, w:4, h:14, color:'#00ffff' });
+        }
+        shootCooldown = cooldownVal;
+        playSE('shoot');
       }
     }
 
     function drawPlayer() {
       ctx.save(); ctx.translate(player.x, player.y);
-      ctx.fillStyle='#00ffff'; ctx.shadowColor='#00ffff'; ctx.shadowBlur=15;
+      // シールドエフェクト
+      if (activePowerups['shield']) {
+        const alpha = 0.4 + 0.2 * Math.sin(frame * 0.2);
+        ctx.strokeStyle = `rgba(255,215,0,${alpha})`;
+        ctx.lineWidth = 3;
+        ctx.shadowColor = '#ffd700';
+        ctx.shadowBlur = 20;
+        ctx.beginPath();
+        ctx.arc(0, 0, player.w * 0.85, 0, Math.PI*2);
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+      }
+      ctx.fillStyle = '#00ffff'; ctx.shadowColor='#00ffff'; ctx.shadowBlur=15;
       ctx.beginPath();
       ctx.moveTo(0,-player.h/2); ctx.lineTo(-player.w/2,player.h/2);
       ctx.lineTo(-player.w/4,player.h/4); ctx.lineTo(0,player.h/3);
       ctx.lineTo(player.w/4,player.h/4); ctx.lineTo(player.w/2,player.h/2);
       ctx.closePath(); ctx.fill();
-      ctx.fillStyle=`hsl(${30+Math.random()*30},100%,60%)`;
-      ctx.shadowColor='#ff8800';
+      ctx.fillStyle=`hsl(${30+Math.random()*30},100%,60%)`; ctx.shadowColor='#ff8800';
       ctx.beginPath();
       ctx.moveTo(-8,player.h/2); ctx.lineTo(8,player.h/2);
       ctx.lineTo(0,player.h/2+10+Math.random()*8); ctx.closePath(); ctx.fill();
@@ -445,8 +547,7 @@
       ctx.fillStyle=e.color; ctx.shadowColor=e.color; ctx.shadowBlur=10;
       if (e.type==='tank') {
         ctx.fillRect(-e.w/2,-e.h/2,e.w,e.h);
-        ctx.fillStyle='#ffffff33';
-        ctx.fillRect(-e.w/2+4,-e.h/2+4,e.w-8,8);
+        ctx.fillStyle='#ffffff33'; ctx.fillRect(-e.w/2+4,-e.h/2+4,e.w-8,8);
         ctx.fillStyle='#333'; ctx.fillRect(-e.w/2,e.h/2+4,e.w,4);
         ctx.fillStyle='#00ff00'; ctx.fillRect(-e.w/2,e.h/2+4,e.w*(e.hp/e.maxHp),4);
       } else {
@@ -455,6 +556,33 @@
         ctx.lineTo(0,-e.h/4); ctx.lineTo(e.w/2,-e.h/2);
         ctx.closePath(); ctx.fill();
       }
+      ctx.restore();
+    }
+
+    function drawPowerupItem(item) {
+      item.angle += 0.05;
+      ctx.save();
+      ctx.translate(item.x, item.y);
+      // 発光リング
+      ctx.beginPath();
+      ctx.arc(0, 0, item.r + 3 + Math.sin(item.angle * 3) * 2, 0, Math.PI*2);
+      ctx.strokeStyle = item.color + '88';
+      ctx.lineWidth = 2;
+      ctx.shadowColor = item.color;
+      ctx.shadowBlur = 14;
+      ctx.stroke();
+      // 本体（円）
+      ctx.beginPath();
+      ctx.arc(0, 0, item.r, 0, Math.PI*2);
+      ctx.fillStyle = item.color + '44';
+      ctx.fill();
+      // 絵文字
+      ctx.font = '16px serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#fff';
+      ctx.fillText(item.emoji, 0, 1);
       ctx.restore();
     }
 
@@ -467,82 +595,119 @@
     function gameLoop() {
       if (!gameRunning) return;
       frame++;
-      ctx.clearRect(0,0,canvas.width,canvas.height);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
 
       // 星
       stars.forEach(s => {
-        s.y+=s.speed; if(s.y>canvas.height){s.y=0;s.x=Math.random()*canvas.width;}
-        ctx.globalAlpha=s.alpha; ctx.fillStyle='#fff';
+        s.y += s.speed; if (s.y > canvas.height) { s.y=0; s.x=Math.random()*canvas.width; }
+        ctx.globalAlpha = s.alpha; ctx.fillStyle = '#fff';
         ctx.beginPath(); ctx.arc(s.x,s.y,s.r,0,Math.PI*2); ctx.fill();
       });
-      ctx.globalAlpha=1;
+      ctx.globalAlpha = 1;
 
       // 自機移動
-      if(keys['ArrowLeft'])  player.x=Math.max(player.w/2,player.x-player.speed);
-      if(keys['ArrowRight']) player.x=Math.min(canvas.width-player.w/2,player.x+player.speed);
-      if(keys['ArrowUp'])    player.y=Math.max(player.h/2,player.y-player.speed);
-      if(keys['ArrowDown'])  player.y=Math.min(canvas.height-player.h/2,player.y+player.speed);
+      if (keys['ArrowLeft'])  player.x = Math.max(player.w/2, player.x - player.speed);
+      if (keys['ArrowRight']) player.x = Math.min(canvas.width - player.w/2, player.x + player.speed);
+      if (keys['ArrowUp'])    player.y = Math.max(player.h/2, player.y - player.speed);
+      if (keys['ArrowDown'])  player.y = Math.min(canvas.height - player.h/2, player.y + player.speed);
 
-      // 発射
+      // 発射（パワーアップ対応）
       shootCooldown--;
-      if(keys['Space']&&shootCooldown<=0){
-        bullets.push({x:player.x,y:player.y-player.h/2,w:4,h:14,speed:10,color:'#00ffff'});
-        shootCooldown=12;
-        playSE('shoot');
-      }
+      fireBullets();
 
-      // 敵スポーン
-      const spawnRate=Math.max(40,90-level*8);
-      if(frame%spawnRate===0) spawnEnemy();
-      level=Math.floor(score/200)+1;
+      // 敵スポーン & レベル
+      const spawnRate = Math.max(40, 90 - level * 8);
+      if (frame % spawnRate === 0) spawnEnemy();
+      level = Math.floor(score / 200) + 1;
 
-      // 弾
-      bullets=bullets.filter(b=>b.y>0);
-      bullets.forEach(b=>{
-        b.y-=b.speed;
-        ctx.fillStyle=b.color; ctx.shadowColor=b.color; ctx.shadowBlur=8;
-        ctx.fillRect(b.x-b.w/2,b.y-b.h/2,b.w,b.h);
+      // パワーアップタイマー更新（60フレームに1回程度で十分だが毎フレーム処理）
+      tickPowerups();
+
+      // 弾の更新
+      bullets = bullets.filter(b => b.y > -20 && b.y < canvas.height && b.x > 0 && b.x < canvas.width);
+      bullets.forEach(b => {
+        b.x += b.vx; b.y += b.vy;
+        ctx.fillStyle = b.color; ctx.shadowColor = b.color; ctx.shadowBlur = 8;
+        // 斜め弾は回転して描画
+        ctx.save();
+        ctx.translate(b.x, b.y);
+        if (b.vx !== 0) ctx.rotate(Math.atan2(b.vy, b.vx) + Math.PI/2);
+        ctx.fillRect(-b.w/2, -b.h/2, b.w, b.h);
+        ctx.restore();
       });
-      ctx.shadowBlur=0;
+      ctx.shadowBlur = 0;
 
-      // 敵
-      enemies=enemies.filter(e=>e.y<canvas.height+60);
-      enemies.forEach(e=>{
-        e.y+=e.speed;
-        const dx=Math.abs(e.x-player.x), dy=Math.abs(e.y-player.y);
-        if(dx<(e.w+player.w)/2-5&&dy<(e.h+player.h)/2-5){
-          spawnParticles(e.x,e.y,e.color,12); playSE('hit');
-          lives--; e.y=canvas.height+100; updateScoreBoard();
-          if(lives<=0) endGame();
+      // 敵の更新
+      enemies = enemies.filter(e => e.y < canvas.height + 60);
+      enemies.forEach(e => {
+        e.y += e.speed;
+        // 自機との衝突
+        const dx = Math.abs(e.x-player.x), dy = Math.abs(e.y-player.y);
+        if (dx < (e.w+player.w)/2-5 && dy < (e.h+player.h)/2-5) {
+          spawnParticles(e.x, e.y, e.color, 12);
+          e.y = canvas.height + 100;
+          if (activePowerups['shield']) {
+            delete activePowerups['shield'];
+            showToast('🛡️ シールドが衝撃を吸収した！');
+            renderPowerupStatus();
+          } else {
+            lives--;
+            playSE('hit');
+            updateScoreBoard();
+            if (lives <= 0) endGame();
+          }
         }
-        bullets.forEach(b=>{
-          if(Math.abs(b.x-e.x)<e.w/2&&Math.abs(b.y-e.y)<e.h/2){
-            e.hp--; b.y=-999;
-            if(e.hp<=0){
-              spawnParticles(e.x,e.y,e.color,10); playSE('explode');
-              score+=e.score; e.y=canvas.height+100; updateScoreBoard();
+        // 弾との衝突
+        bullets.forEach(b => {
+          if (Math.abs(b.x-e.x) < e.w/2 && Math.abs(b.y-e.y) < e.h/2) {
+            e.hp--; b.y = -999;
+            if (e.hp <= 0) {
+              spawnParticles(e.x, e.y, e.color, 10);
+              playSE('explode');
+              score += e.score;
+              e.y = canvas.height + 100;
+              updateScoreBoard();
+              // パワーアップドロップ（25%の確率）
+              if (Math.random() < 0.25) spawnPowerupItem(e.x, e.y);
             }
           }
         });
         drawEnemy(e);
       });
 
+      // パワーアップアイテムの更新
+      powerupItems = powerupItems.filter(item => item.y < canvas.height + 20);
+      powerupItems.forEach(item => {
+        item.y += item.speed;
+        // 自機との当たり判定
+        const dx = Math.abs(item.x - player.x), dy = Math.abs(item.y - player.y);
+        if (dx < item.r + 20 && dy < item.r + 20) {
+          activatePowerup(item.type);
+          item.y = canvas.height + 100;
+        } else {
+          drawPowerupItem(item);
+        }
+      });
+
       // パーティクル
-      particles=particles.filter(p=>p.life>0);
-      particles.forEach(p=>{
-        p.x+=p.vx; p.y+=p.vy; p.life-=0.04;
-        ctx.globalAlpha=p.life; ctx.fillStyle=p.color;
+      particles = particles.filter(p => p.life > 0);
+      particles.forEach(p => {
+        p.x += p.vx; p.y += p.vy; p.life -= 0.04;
+        ctx.globalAlpha = p.life; ctx.fillStyle = p.color;
         ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,Math.PI*2); ctx.fill();
       });
-      ctx.globalAlpha=1;
+      ctx.globalAlpha = 1;
 
       drawPlayer();
       requestAnimationFrame(gameLoop);
     }
 
     function endGame() {
-      gameRunning=false;
+      gameRunning = false;
       stopBGM();
+      // パワーアップをリセット
+      for (const k in activePowerups) delete activePowerups[k];
+      renderPowerupStatus();
       const isNew = addRecord(score, level);
       document.getElementById('final-score').textContent = score.toLocaleString();
       document.getElementById('final-level').textContent = level;
@@ -553,8 +718,10 @@
     function restartGame() {
       score=0; lives=3; level=1; frame=0;
       player.x=canvas.width/2; player.y=canvas.height-60;
-      bullets=[]; enemies=[]; particles=[];
-      gameRunning=true;
+      bullets=[]; enemies=[]; particles=[]; powerupItems=[];
+      for (const k in activePowerups) delete activePowerups[k];
+      renderPowerupStatus();
+      gameRunning = true;
       document.getElementById('gameover-modal').classList.remove('show');
       updateScoreBoard();
       startBGM();
