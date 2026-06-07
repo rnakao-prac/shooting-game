@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>シューティングゲーム</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0a0a1a;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      font-family: 'Arial', sans-serif;
+      color: #fff;
+    }
+    h1 { margin-bottom: 10px; font-size: 24px; color: #00ffff; text-shadow: 0 0 10px #00ffff; }
+    #info { margin-bottom: 10px; font-size: 14px; color: #aaa; }
+    canvas {
+      border: 2px solid #00ffff;
+      box-shadow: 0 0 20px #00ffff55;
+      background: #050510;
+    }
+    #score-board {
+      margin-top: 10px;
+      display: flex;
+      gap: 40px;
+      font-size: 18px;
+    }
+    #score-board span { color: #00ffff; font-weight: bold; }
+    #game-over {
+      display: none;
+      position: absolute;
+      text-align: center;
+    }
+    #game-over h2 { font-size: 48px; color: #ff4444; text-shadow: 0 0 20px #ff4444; }
+    #game-over p { margin-top: 10px; font-size: 20px; color: #aaa; }
+    #restart-btn {
+      margin-top: 20px;
+      padding: 12px 30px;
+      font-size: 18px;
+      background: #00ffff;
+      color: #000;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: bold;
+      transition: background 0.2s;
+    }
+    #restart-btn:hover { background: #00cccc; }
+  </style>
+</head>
+<body>
+  <h1>🚀 スペースシューター</h1>
+  <div id="info">← → キーで移動 ／ スペースで発射</div>
+  <canvas id="gameCanvas" width="480" height="600"></canvas>
+  <div id="score-board">
+    <div>スコア: <span id="score">0</span></div>
+    <div>ライフ: <span id="lives">❤️❤️❤️</span></div>
+    <div>レベル: <span id="level">1</span></div>
+  </div>
+  <div id="game-over">
+    <h2>GAME OVER</h2>
+    <p>最終スコア: <span id="final-score">0</span></p>
+    <button id="restart-btn" onclick="restartGame()">もう一度プレイ</button>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+
+    // ゲーム状態
+    let score = 0;
+    let lives = 3;
+    let level = 1;
+    let gameRunning = true;
+    let frame = 0;
+
+    // 自機
+    const player = {
+      x: canvas.width / 2,
+      y: canvas.height - 60,
+      w: 40,
+      h: 40,
+      speed: 5,
+      color: '#00ffff'
+    };
+
+    // 配列
+    let bullets = [];
+    let enemies = [];
+    let particles = [];
+    let stars = [];
+
+    // 入力
+    const keys = {};
+    document.addEventListener('keydown', e => {
+      keys[e.code] = true;
+      if (e.code === 'Space') e.preventDefault();
+    });
+    document.addEventListener('keyup', e => keys[e.code] = false);
+
+    // 星背景を初期化
+    for (let i = 0; i < 80; i++) {
+      stars.push({
+        x: Math.random() * canvas.width,
+        y: Math.random() * canvas.height,
+        r: Math.random() * 1.5 + 0.3,
+        speed: Math.random() * 1.5 + 0.5,
+        alpha: Math.random()
+      });
+    }
+
+    // 弾発射クールダウン
+    let shootCooldown = 0;
+
+    function spawnEnemy() {
+      const types = ['normal', 'fast', 'tank'];
+      const type = level >= 3 ? types[Math.floor(Math.random() * 3)] :
+                   level >= 2 ? types[Math.floor(Math.random() * 2)] : 'normal';
+      const configs = {
+        normal: { w: 36, h: 36, hp: 1, speed: 1.5 + level * 0.3, color: '#ff4444', score: 10 },
+        fast:   { w: 28, h: 28, hp: 1, speed: 2.5 + level * 0.4, color: '#ffaa00', score: 20 },
+        tank:   { w: 48, h: 48, hp: 3, speed: 0.8 + level * 0.2, color: '#aa44ff', score: 50 }
+      };
+      const cfg = configs[type];
+      enemies.push({
+        x: Math.random() * (canvas.width - cfg.w) + cfg.w / 2,
+        y: -cfg.h,
+        ...cfg,
+        type
+      });
+    }
+
+    function spawnParticles(x, y, color, count = 8) {
+      for (let i = 0; i < count; i++) {
+        const angle = (Math.PI * 2 / count) * i + Math.random() * 0.5;
+        const speed = Math.random() * 3 + 1;
+        particles.push({
+          x, y,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          life: 1,
+          color,
+          r: Math.random() * 3 + 1
+        });
+      }
+    }
+
+    function drawPlayer() {
+      ctx.save();
+      ctx.translate(player.x, player.y);
+      // 機体
+      ctx.fillStyle = '#00ffff';
+      ctx.shadowColor = '#00ffff';
+      ctx.shadowBlur = 15;
+      ctx.beginPath();
+      ctx.moveTo(0, -player.h / 2);
+      ctx.lineTo(-player.w / 2, player.h / 2);
+      ctx.lineTo(-player.w / 4, player.h / 4);
+      ctx.lineTo(0, player.h / 3);
+      ctx.lineTo(player.w / 4, player.h / 4);
+      ctx.lineTo(player.w / 2, player.h / 2);
+      ctx.closePath();
+      ctx.fill();
+      // エンジン炎
+      ctx.fillStyle = `hsl(${30 + Math.random() * 30}, 100%, 60%)`;
+      ctx.shadowColor = '#ff8800';
+      ctx.beginPath();
+      ctx.moveTo(-8, player.h / 2);
+      ctx.lineTo(8, player.h / 2);
+      ctx.lineTo(0, player.h / 2 + 10 + Math.random() * 8);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+
+    function drawEnemy(e) {
+      ctx.save();
+      ctx.translate(e.x, e.y);
+      ctx.fillStyle = e.color;
+      ctx.shadowColor = e.color;
+      ctx.shadowBlur = 10;
+      if (e.type === 'tank') {
+        ctx.fillRect(-e.w / 2, -e.h / 2, e.w, e.h);
+        ctx.fillStyle = '#ffffff33';
+        ctx.fillRect(-e.w / 2 + 4, -e.h / 2 + 4, e.w - 8, 8);
+        // HPバー
+        ctx.fillStyle = '#333';
+        ctx.fillRect(-e.w / 2, e.h / 2 + 4, e.w, 4);
+        ctx.fillStyle = '#00ff00';
+        ctx.fillRect(-e.w / 2, e.h / 2 + 4, e.w * (e.hp / 3), 4);
+      } else {
+        ctx.beginPath();
+        ctx.moveTo(0, e.h / 2);
+        ctx.lineTo(-e.w / 2, -e.h / 2);
+        ctx.lineTo(0, -e.h / 4);
+        ctx.lineTo(e.w / 2, -e.h / 2);
+        ctx.closePath();
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    function updateScoreBoard() {
+      document.getElementById('score').textContent = score;
+      document.getElementById('lives').textContent = '❤️'.repeat(lives);
+      document.getElementById('level').textContent = level;
+    }
+
+    function gameLoop() {
+      if (!gameRunning) return;
+      frame++;
+
+      // 背景
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // 星
+      stars.forEach(s => {
+        s.y += s.speed;
+        if (s.y > canvas.height) { s.y = 0; s.x = Math.random() * canvas.width; }
+        ctx.globalAlpha = s.alpha;
+        ctx.fillStyle = '#fff';
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+        ctx.fill();
+      });
+      ctx.globalAlpha = 1;
+
+      // 自機移動
+      if (keys['ArrowLeft'])  player.x = Math.max(player.w / 2, player.x - player.speed);
+      if (keys['ArrowRight']) player.x = Math.min(canvas.width - player.w / 2, player.x + player.speed);
+      if (keys['ArrowUp'])    player.y = Math.max(player.h / 2, player.y - player.speed);
+      if (keys['ArrowDown'])  player.y = Math.min(canvas.height - player.h / 2, player.y + player.speed);
+
+      // 発射
+      shootCooldown--;
+      if (keys['Space'] && shootCooldown <= 0) {
+        bullets.push({ x: player.x, y: player.y - player.h / 2, w: 4, h: 14, speed: 10, color: '#00ffff' });
+        shootCooldown = 12;
+      }
+
+      // 敵スポーン
+      const spawnRate = Math.max(40, 90 - level * 8);
+      if (frame % spawnRate === 0) spawnEnemy();
+
+      // レベルアップ
+      level = Math.floor(score / 200) + 1;
+
+      // 弾更新
+      bullets = bullets.filter(b => b.y > 0);
+      bullets.forEach(b => {
+        b.y -= b.speed;
+        ctx.fillStyle = b.color;
+        ctx.shadowColor = b.color;
+        ctx.shadowBlur = 8;
+        ctx.fillRect(b.x - b.w / 2, b.y - b.h / 2, b.w, b.h);
+      });
+      ctx.shadowBlur = 0;
+
+      // 敵更新
+      enemies = enemies.filter(e => e.y < canvas.height + 60);
+      enemies.forEach(e => {
+        e.y += e.speed;
+
+        // 自機との衝突
+        const dx = Math.abs(e.x - player.x);
+        const dy = Math.abs(e.y - player.y);
+        if (dx < (e.w + player.w) / 2 - 5 && dy < (e.h + player.h) / 2 - 5) {
+          spawnParticles(e.x, e.y, e.color, 12);
+          lives--;
+          e.y = canvas.height + 100; // 敵を消す
+          updateScoreBoard();
+          if (lives <= 0) endGame();
+        }
+
+        // 弾との衝突
+        bullets.forEach(b => {
+          const bx = Math.abs(b.x - e.x);
+          const by = Math.abs(b.y - e.y);
+          if (bx < e.w / 2 && by < e.h / 2) {
+            e.hp--;
+            b.y = -999;
+            if (e.hp <= 0) {
+              spawnParticles(e.x, e.y, e.color, 10);
+              score += e.score;
+              e.y = canvas.height + 100;
+              updateScoreBoard();
+            }
+          }
+        });
+
+        drawEnemy(e);
+      });
+
+      // パーティクル
+      particles = particles.filter(p => p.life > 0);
+      particles.forEach(p => {
+        p.x += p.vx;
+        p.y += p.vy;
+        p.life -= 0.04;
+        ctx.globalAlpha = p.life;
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+        ctx.fill();
+      });
+      ctx.globalAlpha = 1;
+
+      drawPlayer();
+      requestAnimationFrame(gameLoop);
+    }
+
+    function endGame() {
+      gameRunning = false;
+      document.getElementById('final-score').textContent = score;
+      document.getElementById('game-over').style.display = 'block';
+    }
+
+    function restartGame() {
+      score = 0; lives = 3; level = 1; frame = 0;
+      player.x = canvas.width / 2;
+      player.y = canvas.height - 60;
+      bullets = []; enemies = []; particles = [];
+      gameRunning = true;
+      document.getElementById('game-over').style.display = 'none';
+      updateScoreBoard();
+      gameLoop();
+    }
+
+    updateScoreBoard();
+    gameLoop();
+  </script>
+</body>
+</html>
