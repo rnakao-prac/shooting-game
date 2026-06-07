@@ -665,10 +665,10 @@
               spawnParticles(e.x, e.y, e.color, 10);
               playSE('explode');
               score += e.score;
+              // パワーアップドロップ（25%の確率）※ e.y を書き換える前に生成
+              if (Math.random() < 0.25) spawnPowerupItem(e.x, e.y);
               e.y = canvas.height + 100;
               updateScoreBoard();
-              // パワーアップドロップ（25%の確率）
-              if (Math.random() < 0.25) spawnPowerupItem(e.x, e.y);
             }
           }
         });
