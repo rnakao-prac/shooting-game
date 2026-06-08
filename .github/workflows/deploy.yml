@@ -1,0 +1,45 @@
+name: GitHub Pages へ自動デプロイ
+
+# main ブランチへの push で自動実行
+on:
+  push:
+    branches:
+      - main
+
+# GitHub Pages への書き込み権限を付与
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 同時デプロイを防ぐ
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      # 1. リポジトリのコードを取得
+      - name: コードをチェックアウト
+        uses: actions/checkout@v4
+
+      # 2. GitHub Pages の設定
+      - name: GitHub Pages を設定
+        uses: actions/configure-pages@v5
+
+      # 3. ファイルをアップロード（index.html をそのまま配置）
+      - name: ファイルをアップロード
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: '.'
+
+      # 4. デプロイ実行
+      - name: GitHub Pages へデプロイ
+        id: deployment
+        uses: actions/deploy-pages@v4
