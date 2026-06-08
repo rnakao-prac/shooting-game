@@ -1,0 +1,100 @@
+name: PR チェック
+
+# PR の作成・更新時に実行
+on:
+  pull_request:
+    branches:
+      - main
+
+# PRへのコメント書き込み権限
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  check:
+    name: コードチェック
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. コードを取得
+      - name: コードをチェックアウト
+        uses: actions/checkout@v4
+
+      # 2. Node.js をセットアップ
+      - name: Node.js をセットアップ
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # 3. HTML チェックツールをインストール
+      - name: htmlhint をインストール
+        run: npm install -g htmlhint
+
+      # 4. HTML チェック実行（結果をファイルに保存）
+      - name: HTML チェックを実行
+        id: html_check
+        run: |
+          htmlhint index.html --format=compact > htmlhint-result.txt 2>&1
+          echo "exit_code=$?" >> $GITHUB_OUTPUT
+          cat htmlhint-result.txt
+        continue-on-error: true
+
+      # 5. チェック結果を PR にコメント投稿
+      - name: チェック結果をPRにコメント
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const result = fs.readFileSync('htmlhint-result.txt', 'utf8').trim();
+            const exitCode = '${{ steps.html_check.outputs.exit_code }}';
+            const passed = result === '' || result.includes('0 errors');
+
+            const body = passed
+              ? [
+                  '## ✅ PR チェック通過',
+                  '',
+                  '| チェック項目 | 結果 |',
+                  '|---|---|',
+                  '| HTML 構文チェック | ✅ 問題なし |',
+                  '',
+                  '> レビュー・マージの準備ができています 🚀',
+                ].join('\n')
+              : [
+                  '## ❌ PR チェック — 修正が必要です',
+                  '',
+                  '| チェック項目 | 結果 |',
+                  '|---|---|',
+                  '| HTML 構文チェック | ❌ 問題あり |',
+                  '',
+                  '### 検出された問題',
+                  '```',
+                  result || '（詳細はActionsログを確認してください）',
+                  '```',
+                ].join('\n');
+
+            // 既存のコメントを探して更新（重複防止）
+            const comments = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.data.find(c =>
+              c.user.login === 'github-actions[bot]' &&
+              c.body.includes('PR チェック')
+            );
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
