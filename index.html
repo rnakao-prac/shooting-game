@@ -6,6 +6,81 @@
   <title>シューティングゲーム</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    /* ===== パスワード画面 ===== */
+    #password-screen {
+      position: fixed;
+      inset: 0;
+      background: #0a0a1a;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 999;
+    }
+    #password-screen h1 {
+      font-size: 28px;
+      color: #00ffff;
+      text-shadow: 0 0 16px #00ffff;
+      margin-bottom: 8px;
+    }
+    #password-screen p {
+      color: #666;
+      font-size: 14px;
+      margin-bottom: 32px;
+    }
+    #password-box {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 14px;
+      background: #0d0d2b;
+      border: 2px solid #00ffff44;
+      border-radius: 16px;
+      padding: 36px 48px;
+      box-shadow: 0 0 40px #00ffff22;
+    }
+    #password-box label {
+      color: #aaa;
+      font-size: 14px;
+      align-self: flex-start;
+    }
+    #password-input {
+      background: #0a0a1a;
+      border: 1px solid #00ffff55;
+      border-radius: 8px;
+      color: #fff;
+      font-size: 18px;
+      padding: 10px 18px;
+      width: 240px;
+      text-align: center;
+      letter-spacing: 4px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    #password-input:focus { border-color: #00ffff; }
+    #password-input.error { border-color: #ff4444; animation: shake 0.3s; }
+    #password-error {
+      color: #ff4444;
+      font-size: 13px;
+      min-height: 18px;
+    }
+    #password-submit {
+      padding: 10px 36px;
+      font-size: 16px;
+      background: #00ffff;
+      color: #000;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: bold;
+      transition: background 0.2s;
+    }
+    #password-submit:hover { background: #00cccc; }
+    @keyframes shake {
+      0%,100%{transform:translateX(0)} 25%{transform:translateX(-8px)} 75%{transform:translateX(8px)}
+    }
+
     body {
       background: #0a0a1a;
       display: flex;
@@ -191,6 +266,20 @@
   </style>
 </head>
 <body>
+
+  <!-- ★ パスワード画面 -->
+  <div id="password-screen">
+    <h1>🚀 スペースシューター</h1>
+    <p>このゲームは限定公開です</p>
+    <div id="password-box">
+      <label>合言葉を入力してください</label>
+      <input id="password-input" type="password" placeholder="••••••••••••" maxlength="30"
+             onkeydown="if(event.key==='Enter') checkPassword()" autocomplete="off" />
+      <div id="password-error"></div>
+      <button id="password-submit" onclick="checkPassword()">▶ 入室する</button>
+    </div>
+  </div>
+
   <h1>🚀 スペースシューター</h1>
 
   <div id="instructions">
@@ -250,6 +339,37 @@
   <div id="toast"></div>
 
   <script>
+    // =====================
+    //  パスワード認証
+    // =====================
+    const CORRECT_PASSWORD = 'shooting2024';
+    const SESSION_KEY = 'shooting_game_auth';
+
+    function checkPassword() {
+      const input = document.getElementById('password-input');
+      const error = document.getElementById('password-error');
+      if (input.value === CORRECT_PASSWORD) {
+        sessionStorage.setItem(SESSION_KEY, '1');
+        document.getElementById('password-screen').style.display = 'none';
+        document.getElementById('password-input').value = '';
+      } else {
+        error.textContent = '合言葉が違います。もう一度お試しください。';
+        input.classList.add('error');
+        input.value = '';
+        setTimeout(() => input.classList.remove('error'), 400);
+      }
+    }
+
+    // セッション中はパスワード画面をスキップ
+    if (sessionStorage.getItem(SESSION_KEY) === '1') {
+      document.getElementById('password-screen').style.display = 'none';
+    } else {
+      // ゲームループが始まらないよう、認証前はページをロック
+      document.addEventListener('DOMContentLoaded', () => {
+        document.getElementById('password-input').focus();
+      });
+    }
+
     // =====================
     //  BGM（Web Audio API）
     // =====================
