@@ -582,6 +582,10 @@
 
     const player = { x: canvas.width/2, y: canvas.height-60, w:40, h:40, speed:5 };
     let bullets = [], enemies = [], particles = [], stars = [], powerupItems = [];
+    let boss = null;          // ボス（同時に1体のみ）
+    let bossBullets = [];     // ボスの弾
+    let bossDefeated = 0;     // 撃破済みボス数
+    const BOSS_SCORE_INTERVAL = 500; // 何点ごとにボス出現
     const keys = {};
 
     document.addEventListener('keydown', e => { keys[e.code] = true; if (e.code==='Space') e.preventDefault(); });
@@ -593,6 +597,190 @@
     }
 
     let shootCooldown = 0;
+
+    function spawnBoss() {
+      const hp = 20 + bossDefeated * 10;
+      boss = {
+        x: canvas.width / 2,
+        y: -80,
+        w: 120, h: 80,
+        hp, maxHp: hp,
+        speed: 1.2,
+        dir: 1,           // 左右移動方向
+        shootTimer: 0,
+        color: '#ff00ff',
+        score: 200 + bossDefeated * 100,
+        phase: 'enter',   // enter → active
+        angle: 0,
+      };
+      showToast('⚠️ ボス出現！');
+      playSE('explode');
+    }
+
+    function drawBoss() {
+      if (!boss) return;
+      boss.angle += 0.03;
+      ctx.save();
+      ctx.translate(boss.x, boss.y);
+
+      // 警告発光リング
+      const pulse = 0.5 + 0.5 * Math.sin(boss.angle * 4);
+      ctx.shadowColor = boss.color;
+      ctx.shadowBlur = 20 + pulse * 20;
+
+      // 本体（六角形っぽい形）
+      ctx.fillStyle = '#330033';
+      ctx.beginPath();
+      ctx.moveTo(0, -boss.h / 2);
+      ctx.lineTo(boss.w / 2, -boss.h / 4);
+      ctx.lineTo(boss.w / 2, boss.h / 4);
+      ctx.lineTo(0, boss.h / 2);
+      ctx.lineTo(-boss.w / 2, boss.h / 4);
+      ctx.lineTo(-boss.w / 2, -boss.h / 4);
+      ctx.closePath();
+      ctx.fill();
+
+      // 外枠
+      ctx.strokeStyle = boss.color;
+      ctx.lineWidth = 3;
+      ctx.stroke();
+
+      // コア（中心の光）
+      ctx.beginPath();
+      ctx.arc(0, 0, 14 + pulse * 6, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255,0,255,${0.4 + pulse * 0.4})`;
+      ctx.fill();
+
+      // 砲台（左右）
+      [-boss.w / 2 + 10, boss.w / 2 - 10].forEach(gx => {
+        ctx.fillStyle = '#aa00aa';
+        ctx.fillRect(gx - 8, -6, 16, 16);
+      });
+
+      ctx.restore();
+
+      // HPバー（ボスの上に表示）
+      const barW = boss.w + 20;
+      const barX = boss.x - barW / 2;
+      const barY = boss.y - boss.h / 2 - 18;
+      ctx.fillStyle = '#333';
+      ctx.fillRect(barX, barY, barW, 10);
+      const hpPct = boss.hp / boss.maxHp;
+      const hpColor = hpPct > 0.5 ? '#00ff00' : hpPct > 0.25 ? '#ffaa00' : '#ff0000';
+      ctx.fillStyle = hpColor;
+      ctx.fillRect(barX, barY, barW * hpPct, 10);
+      ctx.strokeStyle = '#ffffff44';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(barX, barY, barW, 10);
+
+      // 「BOSS」テキスト
+      ctx.font = 'bold 11px Arial';
+      ctx.fillStyle = '#fff';
+      ctx.textAlign = 'center';
+      ctx.fillText(`BOSS  HP ${boss.hp}/${boss.maxHp}`, boss.x, barY - 4);
+    }
+
+    function updateBoss() {
+      if (!boss) return;
+
+      // 登場アニメ
+      if (boss.phase === 'enter') {
+        boss.y += 2;
+        if (boss.y >= 100) boss.phase = 'active';
+        drawBoss();
+        return;
+      }
+
+      // 左右移動
+      boss.x += boss.speed * boss.dir;
+      if (boss.x > canvas.width - boss.w / 2 - 10) boss.dir = -1;
+      if (boss.x < boss.w / 2 + 10) boss.dir = 1;
+
+      // 弾発射（60フレームに1回）
+      boss.shootTimer++;
+      if (boss.shootTimer % 60 === 0) {
+        const directions = [
+          { vx: -2, vy: 3 },
+          { vx:  0, vy: 4 },
+          { vx:  2, vy: 3 },
+        ];
+        directions.forEach(d => {
+          bossBullets.push({ x: boss.x, y: boss.y + boss.h / 2, ...d, r: 7, color: '#ff00ff' });
+        });
+        playSE('shoot');
+      }
+
+      // 自機との衝突
+      const dx = Math.abs(boss.x - player.x), dy = Math.abs(boss.y - player.y);
+      if (dx < (boss.w + player.w) / 2 - 10 && dy < (boss.h + player.h) / 2 - 10) {
+        if (activePowerups['shield']) {
+          delete activePowerups['shield'];
+          showToast('🛡️ シールドが衝撃を吸収した！');
+          renderPowerupStatus();
+        } else {
+          lives--;
+          playSE('hit');
+          updateScoreBoard();
+          if (lives <= 0) endGame();
+        }
+      }
+
+      // 自機の弾との衝突
+      bullets.forEach(b => {
+        if (!boss) return; // 撃破済みならスキップ
+        if (Math.abs(b.x - boss.x) < boss.w / 2 && Math.abs(b.y - boss.y) < boss.h / 2) {
+          boss.hp--;
+          b.y = -999;
+          spawnParticles(b.x, b.y, boss.color, 3);
+          if (boss.hp <= 0) {
+            // ボス撃破
+            spawnParticles(boss.x, boss.y, boss.color, 30);
+            playSE('explode');
+            score += boss.score;
+            bossDefeated++;
+            showToast(`🎉 ボス撃破！ +${boss.score}pt`);
+            boss = null;
+            bossBullets = [];
+            updateScoreBoard();
+          }
+        }
+      });
+
+      drawBoss();
+    }
+
+    function updateBossBullets() {
+      bossBullets = bossBullets.filter(b => b.y < canvas.height + 20);
+      bossBullets.forEach(b => {
+        b.x += b.vx;
+        b.y += b.vy;
+
+        // 自機との衝突
+        const dx = Math.abs(b.x - player.x), dy = Math.abs(b.y - player.y);
+        if (dx < b.r + player.w / 2 - 5 && dy < b.r + player.h / 2 - 5) {
+          b.y = canvas.height + 100;
+          if (activePowerups['shield']) {
+            delete activePowerups['shield'];
+            showToast('🛡️ シールドが衝撃を吸収した！');
+            renderPowerupStatus();
+          } else {
+            lives--;
+            playSE('hit');
+            updateScoreBoard();
+            if (lives <= 0) endGame();
+          }
+        }
+
+        // 描画
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+        ctx.fillStyle = b.color;
+        ctx.shadowColor = b.color;
+        ctx.shadowBlur = 10;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      });
+    }
 
     function spawnEnemy() {
       const types = ['normal','fast','tank'];
@@ -736,9 +924,13 @@
       fireBullets();
 
       // 敵スポーン & レベル
-      const spawnRate = Math.max(40, 90 - level * 8);
-      if (frame % spawnRate === 0) spawnEnemy();
       level = Math.floor(score / 200) + 1;
+      const spawnRate = Math.max(40, 90 - level * 8);
+      if (!boss && frame % spawnRate === 0) spawnEnemy();
+
+      // ボス出現チェック（一定スコアごと・ボスがいない時だけ）
+      const bossThreshold = (bossDefeated + 1) * BOSS_SCORE_INTERVAL;
+      if (!boss && score >= bossThreshold) spawnBoss();
 
       // パワーアップタイマー更新（60フレームに1回程度で十分だが毎フレーム処理）
       tickPowerups();
@@ -809,6 +1001,10 @@
         }
       });
 
+      // ボス更新
+      updateBoss();
+      updateBossBullets();
+
       // パーティクル
       particles = particles.filter(p => p.life > 0);
       particles.forEach(p => {
@@ -839,6 +1035,7 @@
       score=0; lives=3; level=1; frame=0;
       player.x=canvas.width/2; player.y=canvas.height-60;
       bullets=[]; enemies=[]; particles=[]; powerupItems=[];
+      boss=null; bossBullets=[]; bossDefeated=0;
       for (const k in activePowerups) delete activePowerups[k];
       renderPowerupStatus();
       gameRunning = true;
