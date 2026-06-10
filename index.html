@@ -727,6 +727,7 @@
 
       // 自機の弾との衝突
       bullets.forEach(b => {
+        if (!boss) return; // 撃破済みならスキップ
         if (Math.abs(b.x - boss.x) < boss.w / 2 && Math.abs(b.y - boss.y) < boss.h / 2) {
           boss.hp--;
           b.y = -999;
@@ -737,9 +738,9 @@
             playSE('explode');
             score += boss.score;
             bossDefeated++;
+            showToast(`🎉 ボス撃破！ +${boss.score}pt`);
             boss = null;
             bossBullets = [];
-            showToast(`🎉 ボス撃破！ +${(200 + (bossDefeated - 1) * 100)}pt`);
             updateScoreBoard();
           }
         }
